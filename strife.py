@@ -6,21 +6,21 @@ import os
 import sys
 from glob import glob
 
-# import contracts
-# from contracts import contract
+import click
+
+import contracts
+from contracts import contract
 
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 import h5py
-from numba import jit
+#from numba import jit
 
 # from scipy.ndimage.filters import convolve
 
-# contracts.disable_all()
-
-DATA_DIR_PATH = 'data/'
+contracts.disable_all()
 
 HDF5_SNAPSHOTS_DATA_PATH = '/DataSamples/Snapshots/Data'
 HDF5_FREQUENCIES_DATA_PATH = '/DataSamples/Frequencies/Data'
@@ -67,38 +67,38 @@ STRAINS_MAPPING = {
 }
 
 
-#@contract(data_dir_path='str', returns='dict(str:(list[10](list[10])))')
-def get_hdf5_grid():
+#@contract(data_dir='str', returns='dict(str:(list[10](list[10])))')
+def get_hdf5_grid(data_dir):
     """Return a dict(str:list[10](list[10])."""
 
-    return {
-        sim_series: [
-            [
-                h5py.File(glob(
-                    DATA_DIR_PATH + filename_template.format(
+    sim_series_list = (
+        'ccost_10',
+        'ccost_30',
+        'diffusion_02',
+        'diffusion_04',
+    )
+    filename_template_list = (
+        'avigdor-utcepoch-*-sth-{sth}-cth-{cth}-ccost-10.json*.h5',
+        'avigdor-utcepoch-*-sth-{sth}-cth-{cth}-ccost-30.json*.h5',
+        'avigdor-utcepoch-*-sth-{sth}-cth-{cth}-ccost-36-D-0.2.json-*.h5',
+        'avigdor-utcepoch-*-sth-{sth}-cth-{cth}-ccost-36-D-0.4.json-*.h5',
+    )
+
+    hdf5_grid_dict = {}
+    for sim_series, filename_template in zip(sim_series_list,
+                                             filename_template_list):
+        hdf5_grid_dict[sim_series] = [[
+            h5py.File(
+                glob(
+                    data_dir + filename_template.format(
                         sth=row_i,
                         cth=col_i,
-                    ))[0]
-                )
-                for col_i in range(10)
-            ]
-            for row_i in range(10)
-        ]
-        for sim_series, filename_template in zip(
-            (
-                'ccost_10',
-                'ccost_30',
-                'diffusion_02',
-                'diffusion_04',
-            ),
-            (
-                'avigdor-utcepoch-*-sth-{sth}-cth-{cth}-ccost-10.json*.h5',
-                'avigdor-utcepoch-*-sth-{sth}-cth-{cth}-ccost-30.json*.h5',
-                'avigdor-utcepoch-*-sth-{sth}-cth-{cth}-ccost-36-D-0.2.json-*.h5',
-                'avigdor-utcepoch-*-sth-{sth}-cth-{cth}-ccost-36-D-0.4.json-*.h5',
-            )
-        )
-    }
+                    )
+                )[0]
+            ) for col_i in range(10)]
+            for row_i in range(10)]
+
+    return hdf5_grid_dict
 
 
 #@contract(fig=mpl.figure.Figure, axes='list[10](list[10])')
@@ -235,7 +235,7 @@ def make_video(fname):
 
 #@contract(a_board='array[NxN](int32),N>0', returns='dict[4](int: array[NxN](int32),N>0)')
 
-@jit('void(int32[:,:,:], int32[:,:,:])', nopython=True)
+#@jit('void(int32[:,:,:], int32[:,:,:])', nopython=True)
 def jitted_count_neighbors(a_board, res_board):
     snapshot_num, row_num, col_num = a_board.shape
     for snapshot_i in range(snapshot_num):
@@ -255,7 +255,7 @@ def jitted_count_neighbors(a_board, res_board):
                                     res_board[snapshot_i, central_strain, neighbor_strain] = res_board[snapshot_i, central_strain, neighbor_strain] + 1
 
 
-@jit('int32[:,:,:](int32[:,:,:])')
+#@jit('int32[:,:,:](int32[:,:,:])')
 def count_neighbors(a_board):
     """Return count of neighbors of each strain for each strain of central cell
 
@@ -302,20 +302,48 @@ def test():
     test_neighbors_count()
 
 
-def main():
-    test()
-    #ff_dict = get_hdf5_grid()
+@click.group()
+@click.pass_context
+def cli(ctx):
+    pass
 
-    #print('make freqs plots')
+@cli.group()
+@click.option('--data-dir', help='Path to the hdf5 data files',
+              type=click.Path(exists=True))
+@click.option('--output-dir', help='Path of the output directory',
+              type=click.Path(exists=True))
+@click.option('--data-set',type=click.Choice(
+    ['ccost_10', 'ccost_30', 'diffusion_02', 'diffusion_04']))
+@click.pass_context
+def plot(ctx, data_dir, output_dir, data_set):
+    ctx.obj['data_dir'] = data_dir
+    ctx.obj['output_dir'] = output_dir
+    ctx.obj['data_set'] = data_set
+    ctx.obj['ff_dict'] = get_hdf5_grid(data_dir)
 
-    #data_set_name_list = ['ccost_10', 'ccost_30', 'diffusion_02', 'diffusion_04']
+@plot.command(name='freqs')
+@click.pass_context
+def freqs_plots(ctx):
+    ff_dict = ctx.obj['ff_dict']
+    data_set = ctx.obj['data_set']
+    output_dir = ctx.obj['output_dir']
+    fig, axes = make_freqs_plots(ff_dict[data_set])
+    fig.savefig(output_dir + '/' + data_set + '.png')
 
-    #for data_set_name in data_set_name_list:
-    #    make_freqs_plots(ff_dict[data_set]);
-    #    make_pngs(ff_dict[data_set_name], data_set_name)
-    #    make_video(data_set_name)
 
+@plot.command(name='pngs')
+@click.pass_context
+def pngs_plots(ctx):
+    ff_dict = ctx.obj['ff_dict']
+    data_set = ctx.obj['data_set']
+    make_pngs(ctx.obj['ff_dict'][data_set], data_set)
+
+
+@plot.command(name='video')
+@click.pass_context
+def video_plot(ctx):
+    make_video(ctx.obj['data_set'])
 
 
 if __name__ == '__main__':
-    main()
+    cli(obj={})
