@@ -188,7 +188,7 @@ def animate_func(ff_list_list, im_list_list, snapshot_i):
             im.set_data(ff[HDF5_SNAPSHOTS_DATA_PATH][snapshot_i])
 
 
-def make_pngs(ff_list_list, fname):
+def make_pngs(ff_list_list, data_set_name):
     # make a color map of fixed colors
     # https://stackoverflow.com/questions/9707676/defining-a-discrete-colormap-for-imshow-in-matplotlib
     cmap = mpl.colors.ListedColormap([STRAINS_MAPPING[i]['color'] for i in range(4,8)])
@@ -215,10 +215,14 @@ def make_pngs(ff_list_list, fname):
 
     beautify(fig, axes)
 
+    fname_template = '{data_set_name}-{snapshot_i:03d}.png'
     for snapshot_i in range(ff_list_list[0][0][HDF5_SNAPSHOTS_DATA_PATH].shape[0]):
         animate_func(ff_list_list, im_list_list, snapshot_i)
-        temp_fname = '_tmp{:03d}'.format(snapshot_i)+fname+'.png'
-        fig.savefig(temp_fname)
+        fname = fname_template.format(
+            data_set_name=data_set_name,
+            snapshot_i=snapshot_i,
+        )
+        fig.savefig(fname)
 
 
 def make_video(fname):
