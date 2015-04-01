@@ -6,21 +6,23 @@ import os
 import sys
 from glob import glob
 
-import click
-
 import contracts
 from contracts import contract
 
 import numpy as np
+import numpy
 import matplotlib as mpl
+import matplotlib
 import matplotlib.pyplot as plt
 
 import h5py
+import json
+import bz2
 #from numba import jit
 
 # from scipy.ndimage.filters import convolve
 
-contracts.disable_all()
+# contracts.disable_all()
 
 HDF5_SNAPSHOTS_DATA_PATH = '/DataSamples/Snapshots/Data'
 HDF5_FREQUENCIES_DATA_PATH = '/DataSamples/Frequencies/Data'
@@ -109,7 +111,7 @@ def beautify(fig, axes):
             ax.set_yticks([])
 
             if col_i == 0:
-                ax.set_ylabel(str(row_i))
+                ax.set_ylabel(str(9-row_i))
 
             if row_i == 9:
                 ax.set_xlabel(str(col_i))
@@ -139,45 +141,50 @@ def beautify(fig, axes):
     fig.tight_layout()
 
 
-def make_plots(data, plotter):
+def make_plots(data_seq_seq, plotter):
     fig, axes = plt.subplots(
         figsize=(13,13),
         nrows=10,
         ncols=10,
     )
 
-    for row_i in range(10):
-        for col_i in range(10):
-                plotter(axes, data, row_i, col_i)
+    for row_i, data_seq in enumerate(data_seq_seq):
+        for col_i, data in enumerate(data_seq):
+                plotter(axes, data, 9-row_i, col_i)
 
     beautify(fig, axes)
 
     return fig, axes
 
 
-def get_simulation_freqs_data_grid(ff_grid):
-    return [[
-        # 0:4 never existed in the simulation.
-        # All mutations are on the S and R loci, never on C locus.
-        # 0:4 are all C deactivated allele. 4:8 are all C activated allele.
-        ff[HDF5_FREQUENCIES_DATA_PATH]
-    for ff in ff_list]
-    for ff_list in ff_grid]
+# def get_simulation_freqs_data_grid(ff_grid):
+#     return [[
+#         # 0:4 never existed in the simulation.
+#         # All mutations are on the S and R loci, never on C locus.
+#         # 0:4 are all C deactivated allele. 4:8 are all C activated allele.
+#         ff[HDF5_FREQUENCIES_DATA_PATH]
+#     for ff in ff_list]
+#     for ff_list in ff_grid]
 
 
-def freqs_plotter(axes, freqs_data, sth, cth):
+#@contract(axes='ndarray',
+#          freqs_data='array',
+#          sth_i='int',
+#          cth_i='int')
+def freqs_plotter(axes, freqs_data, sth_i, cth_i):
     for strain_i, strain_attr in STRAINS_MAPPING.items():
-        axes[sth][cth].plot(
-            freqs_data[sth][cth][:, strain_i],
+        axes[sth_i][cth_i].plot(
+            freqs_data[:, strain_i],
             strain_attr.get('pattern', '-'),
             label=strain_attr.get('strain', strain_i),
-            color=strain_attr['color']
+            color=strain_attr['color'],
         )
 
 
-def make_freqs_plots(ff_list_list):
-    data = get_simulation_freqs_data_grid(ff_list_list)
-    fig, axes = make_plots(data, freqs_plotter)
+#@contract(data_list_list='list[10](list[10])',
+#          returns=(matplotlib.figure.Figure, 'list[10](list[10])'))
+def make_freqs_plots(data_list_list):
+    fig, axes = make_plots(data_list_list, freqs_plotter)
 
     return fig, axes
 
@@ -188,7 +195,7 @@ def animate_func(ff_list_list, im_list_list, snapshot_i):
             im.set_data(ff[HDF5_SNAPSHOTS_DATA_PATH][snapshot_i])
 
 
-def make_pngs(ff_list_list, data_set_name):
+def make_pngs(ff_list_list):
     # make a color map of fixed colors
     # https://stackoverflow.com/questions/9707676/defining-a-discrete-colormap-for-imshow-in-matplotlib
     cmap = mpl.colors.ListedColormap([STRAINS_MAPPING[i]['color'] for i in range(4,8)])
@@ -306,48 +313,77 @@ def test():
     test_neighbors_count()
 
 
-@click.group()
-@click.pass_context
-def cli(ctx):
-    pass
+# @click.group()
+# @click.pass_context
+# def cli(ctx):
+#     pass
+#
+# @cli.group()
+# @click.option('--data-dir', help='Path to the hdf5 data files',
+#               type=click.Path(exists=True))
+# @click.option('--output-dir', help='Path of the output directory',
+#               type=click.Path(exists=True))
+# @click.option('--data-set',type=click.Choice(
+#     ['ccost_10', 'ccost_30', 'diffusion_02', 'diffusion_04']))
+# @click.pass_context
+# def plot(ctx, data_dir, output_dir, data_set):
+#     ctx.obj['data_dir'] = data_dir
+#     ctx.obj['output_dir'] = output_dir
+#     ctx.obj['data_set'] = data_set
+#     ctx.obj['ff_dict'] = get_hdf5_grid(data_dir)
 
-@cli.group()
-@click.option('--data-dir', help='Path to the hdf5 data files',
-              type=click.Path(exists=True))
-@click.option('--output-dir', help='Path of the output directory',
-              type=click.Path(exists=True))
-@click.option('--data-set',type=click.Choice(
-    ['ccost_10', 'ccost_30', 'diffusion_02', 'diffusion_04']))
-@click.pass_context
-def plot(ctx, data_dir, output_dir, data_set):
-    ctx.obj['data_dir'] = data_dir
-    ctx.obj['output_dir'] = output_dir
-    ctx.obj['data_set'] = data_set
-    ctx.obj['ff_dict'] = get_hdf5_grid(data_dir)
-
-@plot.command(name='freqs')
-@click.pass_context
-def freqs_plots(ctx):
-    ff_dict = ctx.obj['ff_dict']
-    data_set = ctx.obj['data_set']
-    output_dir = ctx.obj['output_dir']
-    fig, axes = make_freqs_plots(ff_dict[data_set])
-    fig.savefig(output_dir + '/' + data_set + '.png')
-
-
-@plot.command(name='pngs')
-@click.pass_context
-def pngs_plots(ctx):
-    ff_dict = ctx.obj['ff_dict']
-    data_set = ctx.obj['data_set']
-    make_pngs(ctx.obj['ff_dict'][data_set], data_set)
+# @plot.command(name='freqs')
+# @click.pass_context
+# def freqs_plots(ctx):
+#     ff_dict = ctx.obj['ff_dict']
+#     data_set = ctx.obj['data_set']
+#     output_dir = ctx.obj['output_dir']
+#     fig, axes = make_freqs_plots(ff_dict[data_set])
+#     fig.savefig(output_dir + '/' + data_set + '.png')
 
 
-@plot.command(name='video')
-@click.pass_context
-def video_plot(ctx):
-    make_video(ctx.obj['data_set'])
+# @plot.command(name='pngs')
+# @click.pass_context
+# def pngs_plots(ctx):
+#     ff_dict = ctx.obj['ff_dict']
+#     data_set = ctx.obj['data_set']
+#     make_pngs(ctx.obj['ff_dict'][data_set], data_set)
 
 
-if __name__ == '__main__':
-    cli(obj={})
+# @plot.command(name='video')
+# @click.pass_context
+# def video_plot(ctx):
+#     make_video(ctx.obj['data_set'])
+
+
+def get_data_filename(**parameters):
+    filename_template = (
+        '/home/yuval/mine/game-of-strife-data/new-diffusion/'
+        'boardsize-300-'
+        'seed-{seed}-'
+        'sth-{sth}-'
+        'cth-{cth}-'
+        'D-{D}-'
+        'pgcost-{pgcost}'
+        '.json-*-{last_generation}-*.bz2'
+    )
+    filename = filename_template.format(
+        last_generation=parameters.get('last_generation', 2500), **parameters)
+    return glob(filename)[0]
+
+
+def get_data_core(**parameters):
+    data_filename = get_data_filename(**parameters)
+    with bz2.open(data_filename, 'rt', encoding='utf8') as f_bz2:
+        json_data = json.load(f_bz2)
+    get_data_iterator = lambda data_name: [
+        json_sample['Data']
+        for json_sample
+        in json_data['DataSamples'][data_name]
+    ]
+    snapshots_array = numpy.array(get_data_iterator('Snapshots'), dtype='uint8')
+    frequencies_array = numpy.array(get_data_iterator('Frequencies'), dtype='uint32')
+    return dict(
+        snapshots=snapshots_array,
+        frequencies=frequencies_array,
+    )
